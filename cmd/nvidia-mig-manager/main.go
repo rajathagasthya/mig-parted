@@ -374,25 +374,6 @@ func migConfigPath() (string, error) {
 	return configFileFlag, nil
 }
 
-// publishGeneratedConfig generates the MIG config from hardware and publishes
-// it to the per-node ConfigMap.
-func publishGeneratedConfig(ctx context.Context, clientset *kubernetes.Clientset, customConfig bool) error {
-	log.Info("Generating MIG configuration from hardware...")
-	configYAML, err := writeGeneratedConfig()
-	if err != nil {
-		if !customConfig {
-			return fmt.Errorf("failed to generate MIG config: %w", err)
-		}
-		log.Warnf("Failed to generate MIG config, skipping node ConfigMap creation because a custom config is set: %v", err)
-		return nil
-	}
-	log.Infof("Generated config: %s", DefaultGeneratedConfigFile)
-	if err := createNodeConfigMap(ctx, clientset, nodeNameFlag, configYAML); err != nil {
-		return fmt.Errorf("failed to create node ConfigMap: %w", err)
-	}
-	return nil
-}
-
 func start(ctx context.Context, c *cli.Command) error {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigFlag)
 	if err != nil {
@@ -408,10 +389,22 @@ func start(ctx context.Context, c *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	if err := publishGeneratedConfig(ctx, clientset, configFileFlag != ""); err != nil {
-		return err
+
+	log.Info("Generating MIG configuration from hardware...")
+	configYAML, err := writeGeneratedConfig()
+	if err != nil {
+		if configFileFlag == "" {
+			return err
+		}
+		log.Warnf("Failed to generate MIG config, skipping node ConfigMap creation because a custom config is set: %v", err)
 	}
 
+	if configYAML != nil {
+		log.Infof("Generated config: %s", DefaultGeneratedConfigFile)
+		if err := createNodeConfigMap(ctx, clientset, nodeNameFlag, configYAML); err != nil {
+			return fmt.Errorf("failed to create node ConfigMap: %w", err)
+		}
+	}
 	// Update configFileFlag for rest of mig-manager code
 	configFileFlag = configPath
 
